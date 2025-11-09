@@ -1,0 +1,62 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+
+const SECRET = 'replace-with-secure-secret';
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.static('public'));
+
+// Simple upload storage for images
+const upload = multer({ dest: 'uploads/' });
+app.post('/upload', upload.single('file'), (req, res) => {
+  // Expect authorization header: Bearer <token>
+  const auth = req.headers.authorization?.split(' ')[1];
+  try {
+    const payload = jwt.verify(auth, SECRET);
+    if (payload.role !== 'admin') return res.status(403).json({ error: 'Only admin can upload' });
+    // Return simple file info; in production store properly
+    return res.json({ file: `/uploads/${req.file.filename}`, originalName: req.file.originalname });
+  } catch (e) { return res.status(401).json({ error: 'Invalid or missing token' }); }
+});
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    const payload = jwt.verify(token, SECRET);
+    socket.user = payload;
+    next();
+  } catch (e) { next(new Error('unauthorized')); }
+});
+
+io.on('connection', (socket) => {
+  console.log('connected', socket.user?.id);
+
+  socket.on('sendMessage', (msg) => {
+    // Only admin allowed
+    if (socket.user?.role !== 'admin') return socket.emit('errorMsg', 'Only admin can send messages');
+    // basic sanitation omitted for brevity
+    io.emit('message', { from: socket.user.id, text: msg, time: Date.now() });
+  });
+
+  socket.on('sendLink', (link) => {
+    if (socket.user?.role !== 'admin') return socket.emit('errorMsg', 'Only admin can send links');
+    io.emit('link', { from: socket.user.id, href: link, time: Date.now() });
+  });
+});
+
+server.listen(3000, () => console.log('Server listening on http://localhost:3000'));
+
+// Helper: quick token generator (not for production)
+if (require.main === module) {
+  console.log('Use following sample tokens (role admin/user):');
+  const admin = jwt.sign({ id: 'admin1', role: 'admin' }, SECRET);
+  const user = jwt.sign({ id: 'user1', role: 'user' }, SECRET);
+  console.log('ADMIN:', admin);
+  console.log('USER :', user);
+}
