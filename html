@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Socket Chat</title></head>
+<body>
+<h2>Socket Chat (Admin-only send)</h2>
+<label>Token: <input id="token" style="width:80%"></label><button id="connect">Connect</button>
+<div id="controls" style="display:none">
+  <input id="msg" placeholder="message"><button id="send">Send (admin only)</button>
+  <input id="link" placeholder="link"><button id="sendLink">Send Link (admin only)</button>
+  <input type="file" id="file"><button id="upload">Upload Image (admin only)</button>
+</div>
+<ul id="feed"></ul>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  let socket;
+  document.getElementById('connect').onclick = () => {
+    const token = document.getElementById('token').value;
+    socket = io({ auth: { token } });
+    socket.on('connect', () => { document.getElementById('controls').style.display = 'block'; });
+    socket.on('message', m => add('MSG: ' + m.from + ': ' + m.text));
+    socket.on('link', l => add('LINK: ' + l.from + ' -> ' + l.href));
+    socket.on('errorMsg', e => add('ERROR: ' + e));
+  }
+  function add(t){ const li = document.createElement('li'); li.textContent = t; document.getElementById('feed').appendChild(li); }
+  document.getElementById('send').onclick = () => socket.emit('sendMessage', document.getElementById('msg').value);
+  document.getElementById('sendLink').onclick = () => socket.emit('sendLink', document.getElementById('link').value);
+  document.getElementById('upload').onclick = async () => {
+    const f = document.getElementById('file').files[0];
+    const t = document.getElementById('token').value;
+    if (!f) return alert('pick file');
+    const fd = new FormData(); fd.append('file', f);
+    const res = await fetch('/upload', { method: 'POST', body: fd, headers: { 'Authorization': 'Bearer ' + t }});
+    const json = await res.json(); add('UPLOAD: ' + JSON.stringify(json));
+  }
+</script>
+</body>
+</html>
